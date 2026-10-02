@@ -12,8 +12,12 @@ async def main():
             tools = await session.list_tools()
             print("TOOLS:", [tool.name for tool in tools.tools])
             result = await session.call_tool(
-                "check_request_eligibility",
-                arguments={"employee_id": "E1003", "item": "monitor"},
+                "flag_for_human_review",
+                arguments={
+                    "employee_id": "E1004",
+                    "request": "Please replace my laptop.",
+                    "reason": "Issue date is missing, so the wait period cannot be checked.",
+                },
             )
             print(result)
 

@@ -3,6 +3,7 @@ from mcp.server import MCPServer
 from employee_info import get_employee_info as lookup_employee
 from eligibility import check_request_eligibility as lookup_eligibility
 from policy_limits import get_policy_limits as lookup_policy
+from review import flag_for_human_review as save_review
 
 mcp = MCPServer("Equipment Request Server")
 
@@ -23,6 +24,12 @@ def get_policy_limits(role: str) -> dict:
 def check_request_eligibility(employee_id: str, item: str) -> dict:
     """Return whether an item is inside the role limit. Does not read the reason."""
     return lookup_eligibility(employee_id, item)
+
+
+@mcp.tool()
+def flag_for_human_review(employee_id: str, request: str, reason: str) -> dict:
+    """Store an escalation for a human reviewer. Does not approve or deny."""
+    return save_review(employee_id, request, reason)
 
 
 if __name__ == "__main__":
