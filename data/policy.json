@@ -1,0 +1,8 @@
+[
+    {"role": "standard", "item": "laptop", "max_on_file": 1, "wait_years": 4},
+    {"role": "standard", "item": "monitor", "max_on_file": 1, "wait_years": 3},
+    {"role": "standard", "item": "headset", "max_on_file": 1, "wait_years": 2},
+    {"role": "manager", "item": "laptop", "max_on_file": 1, "wait_years": 2},
+    {"role": "manager", "item": "monitor", "max_on_file": 2, "wait_years": 2},
+    {"role": "manager", "item": "headset", "max_on_file": 1, "wait_years": 1}
+  ]

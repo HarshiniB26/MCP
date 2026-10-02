@@ -1,0 +1,53 @@
+[
+    {
+      "employee_id": "E1001",
+      "name": "Priya Shah",
+      "role": "standard",
+      "hired_on": "2020-03-01",
+      "equipment": [
+        {"item": "laptop", "issued_on": "2021-01-15"},
+        {"item": "monitor", "issued_on": "2025-06-01"}
+      ]
+    },
+    {
+      "employee_id": "E1002",
+      "name": "James Okonkwo",
+      "role": "manager",
+      "hired_on": "2018-06-01",
+      "equipment": [
+        {"item": "laptop", "issued_on": "2025-08-01"},
+        {"item": "monitor", "issued_on": "2024-01-10"},
+        {"item": "monitor", "issued_on": "2025-03-01"},
+        {"item": "headset", "issued_on": "2024-12-01"}
+      ]
+    },
+    {
+      "employee_id": "E1003",
+      "name": "Lena Cho",
+      "role": "standard",
+      "hired_on": "2022-09-01",
+      "equipment": [
+        {"item": "laptop", "issued_on": "2024-05-01"}
+      ]
+    },
+    {
+      "employee_id": "E1004",
+      "name": "Sam Rivera",
+      "role": "standard",
+      "hired_on": "2019-11-12",
+      "equipment": [
+        {"item": "laptop", "issued_on": null},
+        {"item": "monitor", "issued_on": "2020-02-01"}
+      ]
+    },
+    {
+      "employee_id": "E1005",
+      "name": "Riley Okada",
+      "role": "standard",
+      "hired_on": "2023-04-03",
+      "equipment": [
+        {"item": "laptop", "issued_on": "2024-02-29"},
+        {"item": "headset", "issued_on": "2024-02-29"}
+      ]
+    }
+  ]
