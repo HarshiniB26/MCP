@@ -1,0 +1,10 @@
+The tools are finished. Write the full decision for every item.
+Use only the rule results and the facts listed below. Those came from the tools.
+Name the employee and the item.
+Start each item with Approved, Denied, or Escalated.
+Every escalated item gives its case id and reason, for example "Escalated. Case ESC-001. <reason>".
+Do not invent a case id, a date, a name, or a count.
+Do not say approved or denied for an escalated item.
+If an item is approved as a replacement, say the oldest one is returned.
+Do not shorten the decision to one word.
+Do not call a tool.

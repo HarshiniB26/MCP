@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Document ID | IT-EQ-REQ-001 |
-| Version | 1.8 |
+| Version | 2.0 |
 | Status | Approved for build |
 | Date | 2026-10-02 |
 
@@ -18,7 +18,7 @@ Identifiers used here:
 | Kind | Example | Meaning |
 |---|---|---|
 | Policy | P1–P8 | The rule |
-| Reason code | `unknown_employee` | Stored on a review record. The set is closed |
+| Reason code | `unknown_employee` | Why a review record exists. P5 codes have fixed text. `model_judgement` uses the model's own sentence |
 | Behavior | FR-1–FR-6 | What the software does |
 | Case id | `ESC-001` | One queue row. Not a policy |
 
@@ -56,60 +56,45 @@ Hire date is stored. It does not change entitlement.
 - Count equal to the max is a replacement of the oldest unit. It is within entitlement only when that issue date exists, is on or before the as-of date, and the wait is finished.
 - A newer row of the same item does not move the oldest issue date.
 
-### P5. A person must decide
+### P5. The data requires a person
 
-Use the first matching reason code. Do not also approve or deny.
+Some requests cannot be decided from the file. These escalate whatever the request says, in this order, with this exact text:
 
-Match the normalized reason, case-insensitive, on whole words or phrases. `second` does not match inside `secondary`.
+| Order | Reason code | When | Text |
+|---|---|---|---|
+| 1 | `unknown_employee` | Id is blank or not in the directory | Employee id is not in the directory, so role and equipment cannot be checked. |
+| 2 | `item_not_in_catalog` | Item is outside P1 | Item is not in the equipment catalog, so no role limit applies. |
+| 3 | `missing_issue_date` | Count equals max and a matching issue date is missing | Issue date is missing, so the wait period cannot be checked. |
+| 4 | `invalid_issue_date` | Count equals max and a matching issue date is after the as-of date | Issue date is in the future, so the wait period cannot be checked. |
 
-| Order | Reason code | When |
-|---|---|---|
-| 1 | `unknown_employee` | Id is blank or not in the directory |
-| 2 | `item_not_in_catalog` | Item is outside P1 |
-| 3 | `reason_outside_policy` | Reason contains `doctor`, `medical`, `disability`, `ergonomic`, `accommodation`, `neck pain`, `wrist pain`, `for my team`, `shared`, `for my intern`, `for a new hire`, or `someone else`. Applies even when P4 is within or outside entitlement |
-| 4 | `missing_issue_date` | Count equals max and a matching issue date is missing |
-| 5 | `invalid_issue_date` | Count equals max and a matching issue date is after the as-of date |
-| 6 | `statement_conflicts_with_record` | A real issue date exists, and the reason has a year from 1990–2099 at least 2 years from that issue year, or a number before `year` / `years` at least 2 away from completed years. One conflict is enough. Applies even when P4 would deny |
-| 7 | `replacement_versus_extra` | Count equals max, the wait is finished, and the reason contains `second`, `third`, `fourth`, `another`, `extra`, `additional`, `one more`, `as well`, `in addition`, `keep my current`, or `keep both` |
+### P6. The model judges what the employee wrote
 
-Order 7 does not apply while the wait is unfinished. The request then falls through to P6.
+When the data settles an item (P4 within or outside entitlement), the model reads the whole request and decides whether the employee's words make it unclear enough that a person should decide. There is no word list. Examples a person should see: a health or accessibility need, an item for another person, an extra unit while keeping the current one, or a description of the equipment that contradicts the record. An ordinary reason such as "it is slow" does not escalate.
 
-Words outside these lists do not escalate.
+- After every item is checked, the agent asks the model one question that shows what the policy allows in plain words (for example, "allowed as a replacement only; keeping the current laptop as well is not allowed") next to the employee's words. The model answers `ESCALATE: <sentence>` or `CLEAR: <sentence>`.
+- On `ESCALATE`, `flag_for_human_review` is called once with the model's sentence. The reason code is `model_judgement`. An answer that cannot be read escalates rather than guessing.
+- The model may also escalate on its own during the investigation; then the question is not asked.
+- The model can only turn approve or deny into escalate. It cannot approve an item outside entitlement or deny an item within it.
 
-Text stored with the code:
+### P7. Clear decision
 
-| Reason code | Text |
-|---|---|
-| `unknown_employee` | Employee id is not in the directory, so role and equipment cannot be checked. |
-| `item_not_in_catalog` | Item is not in the equipment catalog, so no role limit applies. |
-| `reason_outside_policy` | Reason asks for shared, third-party, or accommodation use, which these limits do not decide. |
-| `missing_issue_date` | Issue date is missing, so the wait period cannot be checked. |
-| `invalid_issue_date` | Issue date is in the future, so the wait period cannot be checked. |
-| `statement_conflicts_with_record` | The reason describes a different equipment age than the file, so the file cannot be treated as settled. |
-| `replacement_versus_extra` | Policy allows replacing the oldest item, but the reason asks for an extra unit. |
-
-### P6. Clear decision
-
-- No P5 match and P4 within entitlement: approve.
-- No P5 match and P4 outside entitlement: deny.
+- No escalation and P4 within entitlement: approve.
+- No escalation and P4 outside entitlement: deny.
 - A deny does not call `flag_for_human_review`.
 
-### P7. Several items in one sentence
+Several items in one sentence:
 
 - Decide each distinct catalog item in the order written. `and` and `or` are both handled this way.
-- Use the same reason for each item.
-- An accommodation or shared-use phrase applies to every item in the sentence.
-- An age or year is compared with that item’s own issue date.
-- An extra-unit phrase is compared with that item’s own count and wait.
-- One review record per escalated item. Approve and deny in the same sentence still stand.
-- Do not add a reason code for “several items.”
+- One review record per P5 item. A model escalation is one record that covers every item the data would have approved or denied.
+- Approve and deny in the same sentence still stand when there is no model escalation.
 
 ### P8. Reply
 
 - State only facts a tool returned on this request: identity, role, count, max, wait, oldest issue date, anniversary, as-of date, disposition, and, if escalated, the case id and reason text.
 - Do not add a loaner, an exception, a price, a backorder, or a different anniversary.
-- Check the draft against those facts before it is final.
-- If the draft says approved or denied for an escalated item, rewrite it from the tool results and check once more.
+- Before the draft is final, the model compares it with the tool results and answers `Verdict: MATCH` or `Verdict: NOT MATCH` with a one-sentence reason. Other wording is fine; wrong or invented facts, a different decision, or promising more than the tools allow are NOT MATCH.
+- On NOT MATCH, or a verdict that cannot be read, there is no retry: the request is escalated.
+- Reflection runs when the model decided something: an approve, a deny, or its own escalation (P6). When every item was escalated by a data rule (P5), the reply is the stored review record and reflection is skipped.
 
 ### Request fields
 
@@ -133,8 +118,8 @@ An id that is not in the file is unknown. The file does not store a future issue
 
 1. Read `employee_id`, the items named, and `reason`.
 2. Look up the employee and the role’s entitlement.
-3. For each item, run P5 in order, then P4 and P6.
-4. Call `flag_for_human_review` once per escalated item.
+3. For each item, apply P5, then P4.
+4. Call `flag_for_human_review` once per P5 item, then let the model judge the wording (P6).
 5. Draft the reply from tool facts only.
 6. Run the P8 check. Rewrite once if it fails.
 
@@ -158,9 +143,7 @@ Returns the P2 limits for that role.
 
 ### FR-3. `check_request_eligibility(employee_id, item)`
 
-Applies P1–P4 and the P5 codes that do not read wording: `unknown_employee`, `item_not_in_catalog`, `missing_issue_date`, `invalid_issue_date`.
-
-Does not apply `reason_outside_policy`, `statement_conflicts_with_record`, or `replacement_versus_extra`.
+Applies P1–P5. Does not read the employee's words; that is P6, the model's judgement.
 
 Returns `employee_id`, `item`, `as_of`, `found_employee`, `role`, `outcome` (`eligible`, `ineligible`, or `undetermined`), `undetermined_code`, `count`, `max_on_file`, `wait_years`, `oldest_issued_on`, `anniversary`, and `completed_years`. Use null when a value cannot be computed. `eligible` is the numeric limit only. It is not an approval.
 
@@ -173,13 +156,13 @@ Appends one record. Does not approve, deny, or delete.
 | `escalation_id` | `ESC-001`, then `ESC-002`. Restarts when the process starts |
 | `employee_id` | normalized |
 | `request` | the employee’s text |
-| `reason` | the P5 text |
+| `reason` | the P5 text, or the model's own sentence for P6. Blank is rejected |
 | `recorded_on` | real local date |
 
 ### FR-5. Agent
 
-Connects as a client and calls the tools. Does not keep a second directory. The trace shows Thought, Action, and Observation for every call, then the disposition. Applies the three wording codes FR-3 skips.
+Connects as a client. The model chooses each tool call and judges the wording (P6). The agent refuses calls that break P5 or P6, and makes any P5 call the model skipped. The trace shows Thought, Action, and Observation for every call, then the disposition.
 
 ### FR-6. Reflection
 
-Performs P8. A draft that says approved or denied for an item that was escalated fails the check and is rewritten from the tool results.
+Performs P8. One model call judges the draft against the tool results (`prompts/reflect.txt`). Code only reads the verdict. On NOT MATCH there is no rewrite: the agent escalates the request instead of sending an unconfirmed decision. The CLI prints `Reflection: match`, `Reflection: not match`, or `Reflection: skipped` and the final answer; the reason goes to the traceability log.

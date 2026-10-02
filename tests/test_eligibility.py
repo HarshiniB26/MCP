@@ -1,4 +1,4 @@
-from eligibility import check_request_eligibility
+from equipment.eligibility import check_request_eligibility
 
 
 def test_under_the_max_is_eligible():
@@ -99,6 +99,31 @@ def test_blank_employee_id():
 
     assert result["employee_id"] == ""
     assert result["undetermined_code"] == "unknown_employee"
+
+
+def test_count_above_the_max_is_ineligible(monkeypatch):
+    def fake_info(employee_id, as_of=None):
+        return {
+            "found": True,
+            "employee_id": "E1001",
+            "name": "Priya Shah",
+            "role": "standard",
+            "hired_on": "2020-03-01",
+            "tenure_years": 6,
+            "equipment": [
+                {"item": "laptop", "issued_on": "2020-01-01"},
+                {"item": "laptop", "issued_on": "2021-01-01"},
+            ],
+            "as_of": "2026-10-02",
+        }
+
+    monkeypatch.setattr("equipment.eligibility.get_employee_info", fake_info)
+    result = check_request_eligibility("E1001", "laptop", as_of="2026-10-02")
+
+    assert result["count"] == 2
+    assert result["max_on_file"] == 1
+    assert result["outcome"] == "ineligible"
+    assert result["undetermined_code"] is None
 
 
 def test_item_outside_the_catalog():

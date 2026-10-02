@@ -1,4 +1,4 @@
-from policy_limits import get_policy_limits
+from equipment.policy_limits import get_policy_limits
 
 
 def test_standard_role_gets_three_limits():

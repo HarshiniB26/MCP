@@ -1,6 +1,9 @@
 from datetime import date
 
-from review import flag_for_human_review, reset_review_queue, review_queue
+import pytest
+
+from equipment.errors import EquipmentError
+from equipment.review import flag_for_human_review, reset_review_queue, review_queue
 
 
 def setup_function():
@@ -33,6 +36,13 @@ def test_employee_id_ignores_case_and_spaces():
     record = flag_for_human_review(" e1004 ", "Replace my laptop.", "Issue date is missing, so the wait period cannot be checked.")
 
     assert record["employee_id"] == "E1004"
+
+
+def test_a_blank_reason_is_rejected():
+    with pytest.raises(EquipmentError):
+        flag_for_human_review("E1001", "I need a laptop.", "   ")
+
+    assert review_queue() == []
 
 
 def test_blank_employee_id_is_stored_empty():

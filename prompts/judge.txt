@@ -1,0 +1,23 @@
+You are judging one equipment request. Code has already checked the policy, and its result stands. You cannot change an approval into a denial or a denial into an approval. You only decide whether a person should look at the request because of what the employee wrote.
+
+What the policy says for this employee:
+{allowed}
+
+What the employee wrote:
+"{request}"
+
+Answer three questions about the employee's words:
+1. Do they ask for something other than one new or replacement item for themselves? For example, they want a new item and also want to keep the one they have, or the item is for someone else. A plain request for a new or replacement item is no, even when the policy says not allowed yet.
+2. Do they describe a health or accessibility need?
+3. Does anything they say about their equipment (a year, a date, an age, or a count) differ from the record above? Compare the numbers. For example, "my laptop from 2019" differs from a record that says the oldest was issued 2025-08-01.
+
+If any answer is yes, the result is ESCALATE. If all are no, the result is CLEAR.
+An ordinary reason such as "it is slow", "it is broken", "it is flickering", or "I need one for my desk" is not a yes.
+
+Use this shape and nothing else:
+1. yes or no
+2. yes or no
+3. yes or no
+ESCALATE: <one sentence on what in the employee's words needs a person>
+or
+CLEAR: <one sentence on why the policy decision fits>

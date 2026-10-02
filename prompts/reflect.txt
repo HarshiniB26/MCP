@@ -1,0 +1,35 @@
+You are checking a drafted reply before it is sent. Do not call a tool.
+
+The employee asked:
+"{request}"
+
+Rule results from the tools:
+{rules}
+
+Facts from the tools:
+{facts}
+
+Must appear in the draft:
+{must_include}
+
+Draft reply:
+{draft}
+
+First write the decision word for each item, from the rule results and from the draft.
+Then answer these checks, yes or no:
+1. Same decision: the rule decision and the draft decision are the same word for every item (Approved, Denied, or Escalated), and an escalated item does not say approved or denied.
+2. Must appear: the draft contains every entry under "Must appear in the draft", written exactly.
+3. Nothing invented: every name, date, count, maximum, wait, and case id in the draft appears in the facts with the same value.
+4. No extra promise: the draft does not promise more than the tools allow. A replacement means the oldest item is returned, so the employee does not keep both.
+
+The verdict is MATCH only if all four answers are yes. Otherwise it is NOT MATCH.
+
+Use this shape and nothing else:
+Rule decision: <Approved, Denied, or Escalated for each item>
+Draft decision: <Approved, Denied, or Escalated for each item>
+1. yes or no
+2. yes or no
+3. yes or no
+4. yes or no
+Verdict: MATCH or NOT MATCH
+Reflection: <one sentence on why>
