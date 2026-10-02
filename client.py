@@ -12,7 +12,7 @@ async def main():
             tools = await session.list_tools()
             print("TOOLS:", [tool.name for tool in tools.tools])
             result = await session.call_tool(
-                "get_employee_info", arguments={"employee_id": "E1001"}
+                "get_policy_limits", arguments={"role": "standard"}
             )
             print(result)
 
