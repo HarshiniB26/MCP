@@ -12,7 +12,8 @@ async def main():
             tools = await session.list_tools()
             print("TOOLS:", [tool.name for tool in tools.tools])
             result = await session.call_tool(
-                "get_policy_limits", arguments={"role": "standard"}
+                "check_request_eligibility",
+                arguments={"employee_id": "E1003", "item": "monitor"},
             )
             print(result)
 
