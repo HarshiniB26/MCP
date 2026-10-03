@@ -1,4 +1,4 @@
-"""Decide approve / deny / escalate for each item, and read the model's verdicts.
+"""Decide approve / deny / escalate for each item, and record the outcome.
 
 Code decides what the data settles: an unknown employee, an item outside the
 catalog, a missing or future issue date, and whether the item is within the
@@ -10,6 +10,7 @@ data denies or deny what the data approves.
 import re
 
 from equipment.reasons import CATALOG, REASON_TEXT
+from equipment.schemas import ItemDecision, Outcome
 from equipment.text import normalize_id, normalize_text
 
 _ITEM = re.compile(r"\b(laptop|monitor|headset)s?\b", re.I)
@@ -156,26 +157,6 @@ def rule_line(decision):
     return f"{decision['item'] or 'request'}: {DECISION_WORD[decision['disposition']]}. {decision['rationale']}"
 
 
-_JUDGEMENT = re.compile(r"\b(ESCALATE|CLEAR)\b\s*[:\-]?\s*(.*)", re.I | re.S)
-_JUDGEMENT_LINE = re.compile(r"^\W*(ESCALATE|CLEAR)\b\W*(.*)", re.I | re.S | re.M)
-
-
-def parse_judgement(text):
-    """Read the model's answer to the judgement question as (verdict, reason), or None.
-
-    A line that starts with the verdict wins over the word appearing inside an earlier line.
-    """
-    match = _JUDGEMENT_LINE.search(text or "") or _JUDGEMENT.search(text or "")
-    if not match:
-        return None
-    verdict = match.group(1).lower()
-    lines = [line.strip() for line in match.group(2).splitlines() if line.strip()]
-    reason = lines[0] if lines else ""
-    if verdict == "escalate" and not reason:
-        return None
-    return verdict, reason
-
-
 def policy_decisions(items, employee, eligibility_by_item):
     """One data decision per item. An unknown employee escalates every item."""
     if not employee.get("found"):
@@ -241,9 +222,7 @@ def compose_reply(employee, decisions, reviews):
             replacement = ""
             if eligibility.get("count") is not None and eligibility.get("count") == eligibility.get("max_on_file"):
                 replacement = f" This is a replacement: the oldest {decision['item']} is returned."
-            lines.append(
-                f"Approved. {identity}.{limits} As of {as_of} the request is within entitlement.{replacement}"
-            )
+            lines.append(f"Approved. {identity}.{limits} As of {as_of} the request is within entitlement.{replacement}")
         elif decision["disposition"] == "deny":
             if eligibility.get("anniversary"):
                 ending = f"As of {as_of} the wait is not finished."
@@ -268,8 +247,7 @@ def needs_reflection(decisions):
     A request escalated only by data rules has a fixed reply, so there is nothing to draft or check.
     """
     return any(
-        decision["disposition"] != "escalate" or decision["reason_code"] == MODEL_JUDGEMENT
-        for decision in decisions
+        decision["disposition"] != "escalate" or decision["reason_code"] == MODEL_JUDGEMENT for decision in decisions
     )
 
 
@@ -334,23 +312,43 @@ def must_include(employee, reviews):
     return entries
 
 
-_VERDICT = re.compile(r"\bverdict\s*:\s*\**\s*(not\s+match|match)\b", re.I)
-_BARE_VERDICT = re.compile(r"^\W*(not\s+match|match)\W*$", re.I)
-_REFLECTION = re.compile(r"\breflection\s*:\s*(.+)", re.I)
+_OVERALL = {
+    frozenset({"approve"}): "approved",
+    frozenset({"deny"}): "denied",
+    frozenset({"escalate"}): "escalated",
+}
 
 
-def parse_reflection(text):
-    """Read the model's verdict on its draft as (matched, reason). matched is None when it cannot be read."""
-    body = text or ""
-    found = _VERDICT.search(body)
-    if not found:
-        first = next((line for line in body.splitlines() if line.strip()), "")
-        found = _BARE_VERDICT.match(first)
-    reason_line = _REFLECTION.search(body)
-    reason = " ".join(reason_line.group(1).split()) if reason_line else ""
-    if not found:
-        return None, reason
-    return not found.group(1).lower().startswith("not"), reason
+def outcome(decisions, reviews, reflection=None, unconfirmed_review=None):
+    """The decision as recorded by code: per-item dispositions, who escalated, and the case ids."""
+    items = [
+        ItemDecision(item=d["item"] or "request", disposition=d["disposition"], reason_code=d["reason_code"])
+        for d in decisions
+    ]
+    case_ids = [review["escalation_id"] for review in reviews if review.get("escalation_id")]
+    if unconfirmed_review is not None:
+        if not unconfirmed_review.get("escalation_id"):
+            return Outcome(decision="none", items=items, case_ids=case_ids, reflection=reflection)
+        return Outcome(
+            decision="escalated",
+            escalated_by="reply_not_confirmed",
+            items=items,
+            case_ids=case_ids + [unconfirmed_review["escalation_id"]],
+            reflection=reflection,
+        )
+    kinds = frozenset(d["disposition"] for d in decisions)
+    escalated_by = None
+    if any(d["reason_code"] == MODEL_JUDGEMENT for d in decisions):
+        escalated_by = "model_judgement"
+    elif "escalate" in kinds:
+        escalated_by = "data_rule"
+    return Outcome(
+        decision=_OVERALL.get(kinds, "mixed" if kinds else "none"),
+        escalated_by=escalated_by,
+        items=items,
+        case_ids=case_ids,
+        reflection=reflection,
+    )
 
 
 def describe(step):
@@ -529,8 +527,12 @@ class Investigation:
     def allowance_lines(self):
         return [f"- {allowance(decision)}" for decision in self._policy_decisions()]
 
-    def call_problem(self, name, arguments):
-        """Why the agent should not run a tool call the model proposed, or None when it may run."""
+    def call_problem(self, name, arguments, judging=False):
+        """Why the agent should not run a tool call the model proposed, or None when it may run.
+
+        Once the data settles every item, only the judgement step (judging=True) may escalate,
+        so the model's own escalation always goes through the structured judgement answer.
+        """
         arguments = arguments or {}
         if name in ("get_employee_info", "check_request_eligibility", "flag_for_human_review"):
             if normalize_id(arguments.get("employee_id")) != normalize_id(self.employee_id):
@@ -556,6 +558,11 @@ class Investigation:
             return "Every item is already escalated. Write the decision."
         if not given:
             return "Write a one-sentence reason that says what in the request makes it unclear."
+        if not judging:
+            return (
+                "The data settles every item, so do not escalate now. When the investigation is done, "
+                "you will be asked whether the employee's words need a person."
+            )
         return None
 
     def missing_step(self):

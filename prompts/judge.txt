@@ -6,18 +6,11 @@ What the policy says for this employee:
 What the employee wrote:
 "{request}"
 
-Answer three questions about the employee's words:
-1. Do they ask for something other than one new or replacement item for themselves? For example, they want a new item and also want to keep the one they have, or the item is for someone else. A plain request for a new or replacement item is no, even when the policy says not allowed yet.
-2. Do they describe a health or accessibility need?
-3. Does anything they say about their equipment (a year, a date, an age, or a count) differ from the record above? Compare the numbers. For example, "my laptop from 2019" differs from a record that says the oldest was issued 2025-08-01.
+Answer three questions about the employee's words with true or false:
+- asks_for_something_else: do they ask for something other than one new or replacement item for themselves? For example, they want a new item and also want to keep the one they have, or the item is for someone else. A plain request for a new or replacement item is false, even when the policy says not allowed yet.
+- health_or_accessibility_need: do they describe a health or accessibility need?
+- contradicts_record: does anything they say about their equipment (a year, a date, an age, or a count) differ from the record above? Compare the numbers with the issue dates and counts in the record.
 
-If any answer is yes, the result is ESCALATE. If all are no, the result is CLEAR.
-An ordinary reason such as "it is slow", "it is broken", "it is flickering", or "I need one for my desk" is not a yes.
+An ordinary reason such as "it is old", "it is broken", or "it stopped working" is false for every question.
 
-Use this shape and nothing else:
-1. yes or no
-2. yes or no
-3. yes or no
-ESCALATE: <one sentence on what in the employee's words needs a person>
-or
-CLEAR: <one sentence on why the policy decision fits>
+Answer in JSON with the fields asks_for_something_else, health_or_accessibility_need, contradicts_record, and reason. The reason is one sentence about what in the employee's words led to your answers.

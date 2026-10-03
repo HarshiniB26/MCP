@@ -16,21 +16,24 @@ from equipment.disposition import (
     fact_sheet,
     must_include,
     needs_reflection,
-    parse_judgement,
-    parse_reflection,
+    outcome,
     rule_line,
     unconfirmed_reply,
 )
 from equipment.errors import ConfigurationError, EquipmentError, ModelError
 from equipment.reasons import REPLY_NOT_CONFIRMED, reason_instructions
+from equipment.schemas import Judgement, Reflection, answer_schema, read_answer
 from equipment.traceability import RunRecord
 
 MAX_STEPS = 10
 MAX_TURNS = 14
 MAX_GUARDRAIL_STEPS = 6
 THOUGHT_LIMIT = 300
+NO_THOUGHT = "(the model gave no reason with this call)"
+REACT_THINK = True
 JUDGE_THINK = True
 JUDGE_UNREADABLE = "The model's judgement of the request could not be read, so a person must decide."
+REFLECTION_UNREADABLE = "The model's reflection on the draft could not be read."
 DEFAULT_TIMEOUT = 180
 DEFAULT_MODEL = "qwen3:8b"
 PROMPTS = Path(__file__).resolve().parent / "prompts"
@@ -129,7 +132,7 @@ def ollama_tools(listed):
     return tools
 
 
-def chat(model, messages, tools, think=False):
+def chat(model, messages, tools, think=False, format=None):
     payload = {
         "model": model,
         "messages": messages,
@@ -139,6 +142,8 @@ def chat(model, messages, tools, think=False):
     }
     if tools:
         payload["tools"] = tools
+    if format:
+        payload["format"] = format
     try:
         body = json.dumps(payload).encode()
     except (TypeError, ValueError) as error:
@@ -174,27 +179,31 @@ def chat(model, messages, tools, think=False):
         message = parsed.get("message") if isinstance(parsed, dict) else None
         if not isinstance(message, dict):
             raise ModelError(f"{host} returned no message.")
-        return _without_thinking(message)
+        return _split_thinking(message)
     raise ModelError("The model is not reachable. " + "; ".join(failures))
 
 
-def _without_thinking(message):
-    """Qwen thinking stays off. Drop a thinking field or a think block if one still arrives."""
+def _split_thinking(message):
+    """Keep the model's thinking in its own field so it never reaches the reply text."""
     cleaned = dict(message)
-    cleaned.pop("thinking", None)
-    content = _THINK_BLOCK.sub("", cleaned.get("content") or "").strip()
-    cleaned["content"] = content
+    content = cleaned.get("content") or ""
+    blocks = _THINK_BLOCK.findall(content)
+    if blocks and not cleaned.get("thinking"):
+        cleaned["thinking"] = " ".join(re.sub(r"</?think>", "", block, flags=re.I) for block in blocks)
+    cleaned["content"] = _THINK_BLOCK.sub("", content).strip()
     return cleaned
 
 
-def thought_from(message, name, arguments):
-    """The model's stated reason for the call, from the text it wrote with the tool call."""
-    text = re.sub(r"^Thought:\s*", "", (message.get("content") or "").strip(), flags=re.I).strip()
+def thought_from(message):
+    """The model's own reasoning for a tool call: its thinking, else the text it wrote, else a note that it gave none."""
+    text = (message.get("thinking") or "").strip()
     if not text:
-        return f"Call {name} with {json.dumps(arguments)}."
+        text = re.sub(r"^Thought:\s*", "", (message.get("content") or "").strip(), flags=re.I).strip()
+    if not text:
+        return NO_THOUGHT
     thought = " ".join(text.split())
     if len(thought) > THOUGHT_LIMIT:
-        thought = thought[: THOUGHT_LIMIT - 3].rstrip() + "..."
+        thought = "..." + thought[-(THOUGHT_LIMIT - 3) :].lstrip()
     return thought
 
 
@@ -241,24 +250,26 @@ def _record(trace, *lines):
     trace.append(block)
 
 
-def _finish(record, trace, final, verdict=None, reflection="", draft=""):
+def _finish(record, trace, final, result, reflection="", draft=""):
     """Print only the outcome. The full trace goes to the traceability log."""
     record.add("\n".join(trace))
     if draft:
         record.add("draft: " + draft)
-    if verdict:
-        print("Reflection:", verdict)
-        record.add(f"reflection: {verdict}. {reflection}".strip())
+    record.add("decision: " + result.model_dump_json())
+    print("Decision:", result.summary())
+    if result.reflection:
+        print("Reflection:", result.reflection)
+        record.add(f"reflection: {result.reflection}. {reflection}".strip())
     print("Final answer:")
     print(final)
     record.finish(final)
 
 
-def _record_step(trace, label, thought, name, arguments, observation):
+def _record_step(trace, label, thought, name, arguments, observation, reason_by="Thought"):
     _record(
         trace,
         label,
-        f"Thought: {thought}",
+        f"{reason_by}: {thought}",
         f"Action: {name}",
         f"Action Input: {json.dumps(arguments)}",
         f"Observation: {observation}",
@@ -296,8 +307,9 @@ async def _escalate_unconfirmed(session, investigation, trace, why):
         "flag_for_human_review",
         arguments,
         observation,
+        reason_by="Agent",
     )
-    return unconfirmed_reply(investigation.employee, payload)
+    return unconfirmed_reply(investigation.employee, payload), payload
 
 
 def judgement_question(template, investigation):
@@ -309,26 +321,32 @@ def judgement_question(template, investigation):
 async def _judge(model, session, investigation, trace, messages, template):
     """Ask the model whether the employee's words fit what the policy allows; escalate if not."""
     ask = [{"role": "user", "content": judgement_question(template, investigation)}]
-    verdict = None
+    answer = None
     for _ in range(2):
         try:
-            content = (chat(model, ask, None, think=JUDGE_THINK).get("content") or "").strip()
+            content = (
+                chat(model, ask, None, think=JUDGE_THINK, format=answer_schema(Judgement)).get("content") or ""
+            ).strip()
             _record(trace, "Judgement answer:\n" + content)
         except ModelError:
             break
-        verdict = parse_judgement(content)
-        if verdict:
+        answer = read_answer(Judgement, content)
+        if answer:
             break
         ask += [
             {"role": "assistant", "content": content},
-            {"role": "user", "content": "Answer on one line that starts with ESCALATE: or CLEAR:."},
+            {"role": "user", "content": "Answer with the JSON fields only."},
         ]
-    kind, reason = verdict or ("escalate", JUDGE_UNREADABLE)
+    escalate = answer.escalate if answer else True
+    reason = answer.reason.strip() if answer else JUDGE_UNREADABLE
 
-    if kind == "clear":
+    if not escalate:
         _record(trace, f"Judgement: CLEAR. {reason}".strip())
         messages.append(
-            {"role": "user", "content": "Your judgement of the employee's words: CLEAR. The rule results stand as they are."}
+            {
+                "role": "user",
+                "content": "Your judgement of the employee's words: CLEAR. The rule results stand as they are.",
+            }
         )
         return
 
@@ -337,7 +355,7 @@ async def _judge(model, session, investigation, trace, messages, template):
         "request": investigation.request,
         "reason": reason,
     }
-    problem = investigation.call_problem("flag_for_human_review", arguments)
+    problem = investigation.call_problem("flag_for_human_review", arguments, judging=True)
     if problem:
         _record(trace, f"Judgement: ESCALATE ({reason}), but the flag was not run: {problem}")
         return
@@ -389,7 +407,7 @@ async def _decide(model, employee_id, request_text, record):
             trace = []
             while steps < MAX_STEPS and turns < MAX_TURNS:
                 turns += 1
-                message = chat(model, messages, tools)
+                message = chat(model, messages, tools, think=REACT_THINK)
                 calls = message.get("tool_calls") or []
                 if not isinstance(calls, list):
                     raise ModelError("The model returned tool_calls that are not a list.")
@@ -405,9 +423,7 @@ async def _decide(model, employee_id, request_text, record):
                     messages.append({"role": "user", "content": note + " Call that tool now."})
                     continue
 
-                messages.append(
-                    {"role": "assistant", "content": message.get("content") or "", "tool_calls": calls}
-                )
+                messages.append({"role": "assistant", "content": message.get("content") or "", "tool_calls": calls})
                 for call in calls:
                     if steps >= MAX_STEPS:
                         break
@@ -420,9 +436,10 @@ async def _decide(model, employee_id, request_text, record):
                         thought = str(error)
                         observation = json.dumps({"error": "ModelError", "message": str(error)})
                     else:
-                        thought = thought_from(message, name, arguments)
+                        thought = thought_from(message)
                         problem = (
-                            f"Unknown tool {name}." if name not in names
+                            f"Unknown tool {name}."
+                            if name not in names
                             else investigation.call_problem(name, arguments)
                         )
                         if problem:
@@ -454,6 +471,7 @@ async def _decide(model, employee_id, request_text, record):
                     name,
                     arguments,
                     observation,
+                    reason_by="Agent",
                 )
                 messages.append({"role": "user", "content": f"Observation from {name}: {observation}"})
                 check = investigation.rule_check(name, arguments, payload)
@@ -462,22 +480,22 @@ async def _decide(model, employee_id, request_text, record):
                     messages.append({"role": "user", "content": check})
 
             if investigation.incomplete_reason():
-                _finish(record, trace, investigation.reply())
+                _finish(record, trace, investigation.reply(), outcome([], investigation.reviews))
                 return
 
             if investigation.needs_judgement():
                 await _judge(model, session, investigation, trace, messages, judge)
 
-            for decision in investigation.decisions():
-                _record(trace, "Thought: " + decision["rationale"])
-
             decisions = investigation.decisions()
+            for decision in decisions:
+                _record(trace, "Rule: " + decision["rationale"])
+
             if not needs_reflection(decisions):
                 _finish(
                     record,
                     trace,
                     investigation.reply(),
-                    verdict="skipped",
+                    outcome(decisions, investigation.reviews, reflection="skipped"),
                     reflection="Every item was escalated by a data rule, so the reply is the stored review record.",
                 )
                 return
@@ -498,43 +516,50 @@ async def _decide(model, employee_id, request_text, record):
                 drafted = chat(model, messages, None)
             except ModelError as error:
                 reflection = f"The model could not draft a reply ({error}), so there was nothing to check."
-                final = await _escalate_unconfirmed(session, investigation, trace, reflection)
-                _finish(record, trace, final, verdict="not match", reflection=reflection)
+                final, review = await _escalate_unconfirmed(session, investigation, trace, reflection)
+                result = outcome(decisions, investigation.reviews, "not match", unconfirmed_review=review)
+                _finish(record, trace, final, result, reflection=reflection)
                 return
 
             draft = (drafted.get("content") or "").strip()
             _show("Draft: " + (draft or "(the model returned an empty draft)"))
 
-            matched, reflection = None, "The model returned an empty draft."
+            answer, reflection = None, "The model returned an empty draft."
             if draft:
                 check = (
                     reflect.replace("{request}", investigation.request)
                     .replace("{rules}", rule_block)
                     .replace("{facts}", fact_block)
                     .replace("{must_include}", must_block)
+                    .replace("{trace}", "\n\n".join(trace))
                     .replace("{draft}", draft)
                 )
                 try:
-                    verdict = chat(model, [{"role": "user", "content": check}], None).get("content") or ""
-                    _record(trace, "Reflection check:\n" + verdict.strip())
+                    content = (
+                        chat(model, [{"role": "user", "content": check}], None, format=answer_schema(Reflection)).get(
+                            "content"
+                        )
+                        or ""
+                    )
+                    _record(trace, "Reflection check:\n" + content.strip())
                 except ModelError as error:
-                    verdict = ""
+                    content = ""
                     _record(trace, f"Reflection call failed: {error}")
-                matched, reflection = parse_reflection(verdict)
-                if matched is None:
-                    reflection = "The model's verdict on the draft could not be read."
+                answer = read_answer(Reflection, content)
+                reflection = REFLECTION_UNREADABLE
+                if answer:
+                    failed = answer.failed_checks()
+                    reflection = answer.reason.strip()
+                    if failed:
+                        reflection += " Failed checks: " + ", ".join(failed) + "."
 
-            final = draft
-            if not matched:
-                final = await _escalate_unconfirmed(session, investigation, trace, reflection)
-            _finish(
-                record,
-                trace,
-                final,
-                verdict="match" if matched else "not match",
-                reflection=reflection,
-                draft=draft,
-            )
+            if answer and answer.matched:
+                final = answer.final_answer.strip() or draft
+                result = outcome(decisions, investigation.reviews, "match")
+            else:
+                final, review = await _escalate_unconfirmed(session, investigation, trace, reflection)
+                result = outcome(decisions, investigation.reviews, "not match", unconfirmed_review=review)
+            _finish(record, trace, final, result, reflection=reflection, draft=draft)
 
 
 async def main(employee_id, request_text):

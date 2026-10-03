@@ -8,8 +8,8 @@ A complete investigation usually goes:
 3. If found is true, call get_policy_limits with the role the employee tool returned.
 4. Call check_request_eligibility once for each item in the request, in the order written. Use the catalog name laptop, monitor, or headset when the request names one. For anything else, pass the item as the employee wrote it.
 5. After each check, a "Rule check" message says what the policy allows for that item.
-6. If the data requires escalation, call flag_for_human_review with the exact reason the Rule check gives.
-7. When every item is checked, you are asked one question: do the employee's words fit what the policy allows? Answer it as asked.
+6. If the data requires escalation, call flag_for_human_review with the exact reason the Rule check gives. Otherwise do not call flag_for_human_review. "Not allowed yet" is a denial, not an escalation.
+7. When every item is checked, you are asked one question: do the employee's words fit what the policy allows? Answer it as asked. That question is the only place to send a request to a person because of what the employee wrote.
 8. When no tool is left, write the decision from the tool results only.
 
 The data decides within policy (Approved) or outside policy (Denied). You cannot approve an item the data denies, or deny an item the data allows. Your judgement can only send a request to a person.

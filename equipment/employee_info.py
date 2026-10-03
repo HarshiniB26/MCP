@@ -72,9 +72,7 @@ def get_employee_info(employee_id, as_of=None):
             except DirectoryError:
                 raise
             except (KeyError, TypeError, ValueError) as error:
-                raise DirectoryError(
-                    f"Employee record {record_id} is incomplete or has a bad hire date"
-                ) from error
+                raise DirectoryError(f"Employee record {record_id} is incomplete or has a bad hire date") from error
     return {"found": False, "employee_id": normalized, "as_of": on.isoformat()}
 
 
@@ -91,7 +89,5 @@ def _equipment_rows(record_id, equipment):
                 }
             )
         except KeyError as error:
-            raise DirectoryError(
-                f"Equipment for {record_id} is missing item or issued_on"
-            ) from error
+            raise DirectoryError(f"Equipment for {record_id} is missing item or issued_on") from error
     return rows

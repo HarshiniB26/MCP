@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "equipment-request-agent"
+version = "0.1.0"
+description = "MCP server and ReAct agent that approves, denies, or escalates IT equipment requests."
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=2.2,<3",
+    "pydantic>=2,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff",
+]
+
+[tool.setuptools]
+packages = ["equipment"]
+py-modules = ["agent", "server", "client", "evaluate"]
+
+[tool.ruff]
+line-length = 120
+extend-exclude = ["demo_output", "logs", "results"]

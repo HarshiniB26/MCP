@@ -1,4 +1,4 @@
-"""Decisions the data settles, the limits on the model's judgement, and the reply check.
+"""Decisions the data settles, the limits on the model's judgement, and the recorded outcome.
 
 Dates are passed in so the results do not depend on the day the suite runs.
 """
@@ -8,8 +8,7 @@ from equipment.disposition import (
     named_items,
     must_include,
     needs_reflection,
-    parse_judgement,
-    parse_reflection,
+    outcome,
     rule_line,
     unconfirmed_reply,
 )
@@ -41,9 +40,7 @@ def investigate(employee_id, request, as_of=AS_OF):
         elif name == "get_policy_limits":
             payload = get_policy_limits(arguments["role"])
         elif name == "check_request_eligibility":
-            payload = check_request_eligibility(
-                arguments["employee_id"], arguments["item"], as_of=as_of
-            )
+            payload = check_request_eligibility(arguments["employee_id"], arguments["item"], as_of=as_of)
         elif name == "flag_for_human_review":
             payload = flag_for_human_review(**arguments)
         else:
@@ -56,7 +53,7 @@ def investigate(employee_id, request, as_of=AS_OF):
 def judge(investigation, reason):
     """The model escalates because of what the employee wrote."""
     arguments = {"employee_id": investigation.employee_id, "request": investigation.request, "reason": reason}
-    assert investigation.call_problem("flag_for_human_review", arguments) is None
+    assert investigation.call_problem("flag_for_human_review", arguments, judging=True) is None
     investigation.observe("flag_for_human_review", flag_for_human_review(**arguments), arguments)
 
 
@@ -67,7 +64,7 @@ def test_items_follow_the_order_written_and_ignore_plurals():
 
 
 def test_approve_when_count_is_under_the_max():
-    investigation = investigate("E1003", "I need a monitor for my desk.")
+    investigation = investigate("E1003", "Please send me a monitor, I don't have one at my desk.")
 
     decision = investigation.decisions()[0]
     assert investigation.tool_names == [
@@ -84,7 +81,7 @@ def test_approve_when_count_is_under_the_max():
 
 
 def test_deny_when_the_wait_is_unfinished():
-    investigation = investigate("E1001", "My monitor is flickering, can I get a new monitor?")
+    investigation = investigate("E1001", "My monitor keeps going black, I need another monitor.")
 
     decision = investigation.decisions()[0]
     assert decision["disposition"] == "deny"
@@ -101,14 +98,14 @@ def test_replacement_is_approved_when_the_wait_is_finished():
 
 
 def test_code_does_not_read_the_employees_words():
-    investigation = investigate("E1003", "My doctor says I need an ergonomic monitor for neck pain.")
+    investigation = investigate("E1003", "My wrists ache, so I need an ergonomic monitor.")
 
     assert investigation.decisions()[0]["disposition"] == "approve"
     assert "flag_for_human_review" not in investigation.tool_names
 
 
 def test_escalate_when_the_issue_date_is_missing():
-    investigation = investigate("E1004", "My laptop is slow, please replace my laptop.")
+    investigation = investigate("E1004", "My laptop keeps freezing, can I have a new laptop?")
 
     decision = investigation.decisions()[0]
     assert decision["reason_code"] == "missing_issue_date"
@@ -120,7 +117,7 @@ def test_escalate_when_the_issue_date_is_missing():
 
 
 def test_unknown_employee_escalates_before_any_item_check():
-    investigation = investigate("E9999", "I need a headset.")
+    investigation = investigate("E9999", "Could I get a headset please?")
 
     assert investigation.tool_names == ["get_employee_info", "flag_for_human_review"]
     assert investigation.decisions()[0]["reason_code"] == "unknown_employee"
@@ -144,7 +141,7 @@ def test_one_sentence_can_deny_one_item_and_approve_another():
 
 
 def test_model_can_escalate_an_item_the_data_approves():
-    investigation = investigate("E1001", "I would like a second laptop and I want to keep my current one.")
+    investigation = investigate("E1001", "Can I get a spare laptop? I'd like to keep the one I have.")
     judge(investigation, "The employee wants a second laptop while keeping the current one, not a replacement.")
 
     decision = investigation.decisions()[0]
@@ -156,7 +153,7 @@ def test_model_can_escalate_an_item_the_data_approves():
 
 
 def test_model_can_escalate_an_item_the_data_denies():
-    investigation = investigate("E1001", "My doctor says I need a new monitor for neck pain.")
+    investigation = investigate("E1001", "My back hurts when I work, so I need a different monitor.")
     judge(investigation, "The employee describes a medical need that may justify an exception.")
 
     assert investigation.decisions()[0]["disposition"] == "escalate"
@@ -203,13 +200,21 @@ def test_model_cannot_escalate_twice():
 
 
 def test_model_cannot_add_a_judgement_when_every_item_is_already_escalated():
-    investigation = investigate("E9999", "My doctor says I need a headset.")
+    investigation = investigate("E9999", "My ears hurt with my old one, so I want a softer headset.")
 
     problem = investigation.call_problem(
         "flag_for_human_review",
         {"employee_id": "E9999", "request": "x", "reason": "Medical need."},
     )
     assert problem == "Every item is already escalated. Write the decision."
+
+
+def test_settled_items_are_escalated_only_through_the_judgement_step():
+    investigation = investigate("E1001", "My monitor keeps going black, I need another monitor.")
+    arguments = {"employee_id": "E1001", "request": "x", "reason": "The wait has not ended."}
+
+    assert "do not escalate now" in investigation.call_problem("flag_for_human_review", arguments)
+    assert investigation.call_problem("flag_for_human_review", arguments, judging=True) is None
 
 
 def test_model_must_give_a_reason():
@@ -223,11 +228,13 @@ def test_model_must_give_a_reason():
 
 
 def test_a_required_escalation_must_copy_the_reason_exactly():
-    investigation = Investigation("E1004", "My laptop is slow, please replace my laptop.")
+    investigation = Investigation("E1004", "My laptop keeps freezing, can I have a new laptop?")
     investigation.observe("get_employee_info", get_employee_info("E1004", as_of=AS_OF))
     investigation.observe("get_policy_limits", get_policy_limits("standard"))
     arguments = {"employee_id": "E1004", "item": "laptop"}
-    investigation.observe("check_request_eligibility", check_request_eligibility("E1004", "laptop", as_of=AS_OF), arguments)
+    investigation.observe(
+        "check_request_eligibility", check_request_eligibility("E1004", "laptop", as_of=AS_OF), arguments
+    )
 
     wrong = {"employee_id": "E1004", "request": "x", "reason": "Date unknown."}
     right = dict(wrong, reason="Issue date is missing, so the wait period cannot be checked.")
@@ -243,7 +250,7 @@ def test_lookups_must_use_the_requesting_employee():
 
 
 def test_rule_check_leaves_the_wording_to_the_model():
-    request = "I would like a second laptop and I want to keep my current one."
+    request = "Can I get a spare laptop? I'd like to keep the one I have."
     investigation = Investigation("E1001", request)
     investigation.observe("get_employee_info", get_employee_info("E1001", as_of=AS_OF))
     arguments = {"employee_id": "E1001", "item": "laptop"}
@@ -257,7 +264,7 @@ def test_rule_check_leaves_the_wording_to_the_model():
 
 
 def test_judgement_is_needed_once_the_data_settles_an_item():
-    investigation = investigate("E1001", "I would like a second laptop and I want to keep my current one.")
+    investigation = investigate("E1001", "Can I get a spare laptop? I'd like to keep the one I have.")
 
     assert investigation.needs_judgement()
     lines = investigation.allowance_lines()
@@ -283,26 +290,6 @@ def test_allowance_under_the_max_and_for_a_denial():
     denied = investigate("E1001", "I need a new monitor.").allowance_lines()[0]
     assert "not allowed yet" in denied
     assert "the wait ends 2028-06-01" in denied
-
-
-def test_parse_judgement():
-    assert parse_judgement("ESCALATE: They want to keep both laptops.") == (
-        "escalate",
-        "They want to keep both laptops.",
-    )
-    assert parse_judgement("clear - an ordinary replacement") == ("clear", "an ordinary replacement")
-    assert parse_judgement("CLEAR") == ("clear", "")
-    assert parse_judgement("ESCALATE:") is None
-    assert parse_judgement("I think this is fine.") is None
-
-
-def test_parse_judgement_after_the_three_questions():
-    text = "1. no\n2. no\n3. yes\nESCALATE: The employee says 2019, but the record says 2025-08-01."
-    assert parse_judgement(text) == ("escalate", "The employee says 2019, but the record says 2025-08-01.")
-    assert parse_judgement("1. no (not CLEAR yet)\n2. no\n3. no\nCLEAR: Ordinary reason.") == (
-        "clear",
-        "Ordinary reason.",
-    )
 
 
 def test_rule_line_puts_the_decision_word_first():
@@ -349,7 +336,9 @@ def test_a_non_catalog_item_checked_by_name_settles_the_request():
     investigation.observe("get_employee_info", get_employee_info("E1003", as_of=AS_OF))
     investigation.observe("get_policy_limits", get_policy_limits("standard"))
     arguments = {"employee_id": "E1003", "item": "standing desk"}
-    investigation.observe("check_request_eligibility", check_request_eligibility("E1003", "standing desk", as_of=AS_OF), arguments)
+    investigation.observe(
+        "check_request_eligibility", check_request_eligibility("E1003", "standing desk", as_of=AS_OF), arguments
+    )
 
     assert investigation.missing_step() == (
         'flag_for_human_review with reason "Item is not in the equipment catalog, so no role limit applies."'
@@ -357,64 +346,111 @@ def test_a_non_catalog_item_checked_by_name_settles_the_request():
 
 
 def test_must_include_names_the_employee_and_every_case():
-    investigation = investigate("E1001", "I would like a second laptop and I want to keep my current one.")
+    investigation = investigate("E1001", "Can I get a spare laptop? I'd like to keep the one I have.")
     judge(investigation, "The employee wants to keep the current laptop as well.")
 
     assert must_include(investigation.employee, investigation.reviews) == ["Priya Shah", "ESC-001"]
 
 
 def test_must_include_uses_the_id_for_an_unknown_employee():
-    investigation = investigate("E9999", "I need a headset.")
+    investigation = investigate("E9999", "Could I get a headset please?")
 
     assert must_include(investigation.employee, investigation.reviews) == ["E9999", "ESC-001"]
 
 
-def test_reflection_verdict_after_the_checks():
-    text = "1. yes\n2. no\n3. yes\n4. yes\nVerdict: NOT MATCH\nReflection: The case id ESC-001 is missing."
-    assert parse_reflection(text) == (False, "The case id ESC-001 is missing.")
+def test_outcome_of_an_approval():
+    investigation = investigate("E1003", "Please send me a monitor, I don't have one at my desk.")
+
+    result = outcome(investigation.decisions(), investigation.reviews, "match")
+    assert result.decision == "approved"
+    assert result.escalated_by is None
+    assert result.case_ids == []
+    assert [(item.item, item.disposition) for item in result.items] == [("monitor", "approve")]
 
 
-def test_reflection_verdict_match():
-    text = "Verdict: MATCH\nReflection: The draft states the approval and the facts from the tools."
-    assert parse_reflection(text) == (True, "The draft states the approval and the facts from the tools.")
+def test_outcome_of_a_denial():
+    investigation = investigate("E1001", "My monitor keeps going black, I need another monitor.")
+
+    result = outcome(investigation.decisions(), investigation.reviews, "match")
+    assert result.decision == "denied"
+    assert result.escalated_by is None
 
 
-def test_reflection_verdict_not_match():
-    text = "Verdict: NOT MATCH\nReflection: The draft says max 2, but the tool returned 1."
-    assert parse_reflection(text) == (False, "The draft says max 2, but the tool returned 1.")
+def test_outcome_of_a_data_rule_escalation():
+    investigation = investigate("E1004", "My laptop keeps freezing, can I have a new laptop?")
+
+    result = outcome(investigation.decisions(), investigation.reviews, "skipped")
+    assert result.decision == "escalated"
+    assert result.escalated_by == "data_rule"
+    assert result.case_ids == ["ESC-001"]
+    assert result.items[0].reason_code == "missing_issue_date"
 
 
-def test_reflection_verdict_on_a_bare_first_line():
-    assert parse_reflection("**NOT MATCH**\nReflection: The case id is missing.")[0] is False
-    assert parse_reflection("MATCH")[0] is True
+def test_outcome_of_a_model_escalation():
+    investigation = investigate("E1001", "Can I get a spare laptop? I'd like to keep the one I have.")
+    judge(investigation, "The employee wants to keep the current laptop as well.")
+
+    result = outcome(investigation.decisions(), investigation.reviews, "match")
+    assert result.decision == "escalated"
+    assert result.escalated_by == "model_judgement"
 
 
-def test_reflection_verdict_that_cannot_be_read():
-    assert parse_reflection("The draft looks fine to me.") == (None, "")
-    assert parse_reflection("")[0] is None
+def test_outcome_of_a_mixed_request():
+    investigation = investigate("E1004", "I need a laptop and a headset.")
+
+    result = outcome(investigation.decisions(), investigation.reviews, "match")
+    assert result.decision == "mixed"
+    assert result.escalated_by == "data_rule"
+
+
+def test_outcome_when_reflection_fails_records_the_new_case():
+    investigation = investigate("E1003", "Please send me a monitor, I don't have one at my desk.")
+    review = flag_for_human_review("E1003", investigation.request, REPLY_NOT_CONFIRMED)
+
+    result = outcome(investigation.decisions(), investigation.reviews, "not match", unconfirmed_review=review)
+    assert result.decision == "escalated"
+    assert result.escalated_by == "reply_not_confirmed"
+    assert result.case_ids == [review["escalation_id"]]
+    assert result.items[0].disposition == "approve"
+
+
+def test_outcome_when_the_review_record_could_not_be_stored():
+    investigation = investigate("E1003", "Please send me a monitor, I don't have one at my desk.")
+
+    result = outcome(
+        investigation.decisions(),
+        investigation.reviews,
+        "not match",
+        unconfirmed_review={"error": "StorageError", "message": "disk full"},
+    )
+    assert result.decision == "none"
+
+
+def test_outcome_with_no_decisions():
+    assert outcome([], []).decision == "none"
 
 
 def test_an_approval_is_reflected():
-    investigation = investigate("E1003", "I need a monitor for my desk.")
+    investigation = investigate("E1003", "Please send me a monitor, I don't have one at my desk.")
 
     assert needs_reflection(investigation.decisions()) is True
 
 
 def test_a_denial_is_reflected():
-    investigation = investigate("E1001", "My monitor is flickering, can I get a new monitor?")
+    investigation = investigate("E1001", "My monitor keeps going black, I need another monitor.")
 
     assert needs_reflection(investigation.decisions()) is True
 
 
 def test_a_model_escalation_is_reflected():
-    investigation = investigate("E1001", "I would like a second laptop and I want to keep my current one.")
+    investigation = investigate("E1001", "Can I get a spare laptop? I'd like to keep the one I have.")
     judge(investigation, "The employee wants to keep the current laptop as well.")
 
     assert needs_reflection(investigation.decisions()) is True
 
 
 def test_a_data_rule_escalation_is_not_reflected():
-    investigation = investigate("E1004", "My laptop is slow, please replace my laptop.")
+    investigation = investigate("E1004", "My laptop keeps freezing, can I have a new laptop?")
 
     assert needs_reflection(investigation.decisions()) is False
 

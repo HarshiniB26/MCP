@@ -3,6 +3,9 @@ You are checking a drafted reply before it is sent. Do not call a tool.
 The employee asked:
 "{request}"
 
+ReAct trace (every Thought, Action, and Observation, then the rule checks and the judgement):
+{trace}
+
 Rule results from the tools:
 {rules}
 
@@ -15,21 +18,20 @@ Must appear in the draft:
 Draft reply:
 {draft}
 
-First write the decision word for each item, from the rule results and from the draft.
-Then answer these checks, yes or no:
-1. Same decision: the rule decision and the draft decision are the same word for every item (Approved, Denied, or Escalated), and an escalated item does not say approved or denied.
-2. Must appear: the draft contains every entry under "Must appear in the draft", written exactly.
-3. Nothing invented: every name, date, count, maximum, wait, and case id in the draft appears in the facts with the same value.
-4. No extra promise: the draft does not promise more than the tools allow. A replacement means the oldest item is returned, so the employee does not keep both.
+Answer in JSON with these fields:
+- rule_decision: the decision word for each item from the rule results (Approved, Denied, or Escalated).
+- draft_decision: the decision word for each item as the draft states it.
+- same_decision: true if the two are the same word for every item, and an escalated item does not say approved or denied.
+- must_appear_present: true if the draft contains every entry under "Must appear in the draft", written exactly.
+- nothing_invented: true if every name, date, count, maximum, wait, and case id in the draft appears in the facts or in an Observation with the same value.
+- no_extra_promise: true if the draft does not promise more than the tools allow. A replacement means the oldest item is returned, so the employee does not keep both.
+- sound_reasoning: true if the trace looked up this employee, their role's limits, and every requested item, and the rule results follow from those Observations.
+- reason: one sentence on why the draft passes or fails.
+- final_answer: if all five checks are true, the draft rewritten as the final reply to the employee, in two to four clear sentences. Otherwise an empty string.
 
-The verdict is MATCH only if all four answers are yes. Otherwise it is NOT MATCH.
-
-Use this shape and nothing else:
-Rule decision: <Approved, Denied, or Escalated for each item>
-Draft decision: <Approved, Denied, or Escalated for each item>
-1. yes or no
-2. yes or no
-3. yes or no
-4. yes or no
-Verdict: MATCH or NOT MATCH
-Reflection: <one sentence on why>
+When you write final_answer:
+- Start with the decision word: Approved, Denied, or Escalated.
+- Name the employee and the item.
+- Give the reason for the decision from the tool results, for example the count and maximum, or the date the wait ends.
+- Say what happens next: for a replacement, the oldest item is returned; for an escalation, a person reviews the case id.
+- Keep every fact the same as the draft. Do not add a fact, a promise, or a date that is not in the facts.

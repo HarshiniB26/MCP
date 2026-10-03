@@ -54,7 +54,7 @@ def test_judgement_question_shows_the_policy_and_the_employees_words():
     from equipment.employee_info import get_employee_info
     from equipment.policy_limits import get_policy_limits
 
-    request = "I would like a second laptop and I want to keep my current one."
+    request = "Can I get a spare laptop? I'd like to keep the one I have."
     investigation = Investigation("E1001", request)
     investigation.observe("get_employee_info", get_employee_info("E1001", as_of="2026-10-02"))
     investigation.observe("get_policy_limits", get_policy_limits("standard"))

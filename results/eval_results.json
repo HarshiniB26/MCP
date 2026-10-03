@@ -1,0 +1,211 @@
+{
+  "model": "qwen3:8b",
+  "run_at": "2026-10-03T01:05:48+00:00",
+  "summary": {
+    "decision_accuracy": {
+      "score": 1.0,
+      "passed": 8,
+      "total": 8
+    },
+    "escalation_source_accuracy": {
+      "score": 1.0,
+      "passed": 8,
+      "total": 8
+    },
+    "reflection_accuracy": {
+      "score": 1.0,
+      "passed": 8,
+      "total": 8
+    }
+  },
+  "cases": [
+    {
+      "id": "approve",
+      "employee_id": "E1003",
+      "request": "I take a lot of calls, could I get a headset?",
+      "expected": {
+        "decision": "approved",
+        "escalated_by": null,
+        "reflection": "match"
+      },
+      "actual": {
+        "decision": "approved",
+        "escalated_by": null,
+        "reflection": "match"
+      },
+      "case_ids": [],
+      "passed": {
+        "decision": true,
+        "escalated_by": true,
+        "reflection": true
+      },
+      "final_answer": "Approved. Lena Cho (employee ID E1003) is eligible for a headset as she currently has 0 of the maximum 1 allowed under the standard role policy. The request fits within the policy limits."
+    },
+    {
+      "id": "deny",
+      "employee_id": "E1005",
+      "request": "My laptop battery dies fast, can I get a new laptop?",
+      "expected": {
+        "decision": "denied",
+        "escalated_by": null,
+        "reflection": "match"
+      },
+      "actual": {
+        "decision": "denied",
+        "escalated_by": null,
+        "reflection": "match"
+      },
+      "case_ids": [],
+      "passed": {
+        "decision": true,
+        "escalated_by": true,
+        "reflection": true
+      },
+      "final_answer": "Denied. Riley Okada's request for a new laptop is denied because the wait period for a laptop has not finished. The oldest laptop was issued on 2024-02-29, and the wait ends on 2028-02-29. As of 2026-10-03, only 2 years have passed, which is less than the required 4-year wait. For a replacement, the oldest item will be returned."
+    },
+    {
+      "id": "missing_date",
+      "employee_id": "E1004",
+      "request": "Could you swap my laptop for a newer one?",
+      "expected": {
+        "decision": "escalated",
+        "escalated_by": "data_rule",
+        "reflection": "skipped"
+      },
+      "actual": {
+        "decision": "escalated",
+        "escalated_by": "data_rule",
+        "reflection": "skipped"
+      },
+      "case_ids": [
+        "ESC-001"
+      ],
+      "passed": {
+        "decision": true,
+        "escalated_by": true,
+        "reflection": true
+      },
+      "final_answer": "Escalated. Case ESC-001 for laptop. Issue date is missing, so the wait period cannot be checked. Sam Rivera (E1004), role standard. Item laptop: count 1, max 1, wait is 4 years. As of 2026-10-03."
+    },
+    {
+      "id": "keep_both",
+      "employee_id": "E1002",
+      "request": "Can I get a spare headset? I'd like to keep the one I have.",
+      "expected": {
+        "decision": "escalated",
+        "escalated_by": "model_judgement",
+        "reflection": "match"
+      },
+      "actual": {
+        "decision": "escalated",
+        "escalated_by": "model_judgement",
+        "reflection": "match"
+      },
+      "case_ids": [
+        "ESC-001"
+      ],
+      "passed": {
+        "decision": true,
+        "escalated_by": true,
+        "reflection": true
+      },
+      "final_answer": "Escalated. James Okonkwo requested a spare headset but also stated he wants to keep the one he has, which is an additional request beyond a standard replacement. The policy allows for a replacement, which would require returning the oldest headset issued on 2024-12-01. However, the request to keep the current headset introduces ambiguity, so Case ESC-001 has been escalated for human review."
+    },
+    {
+      "id": "for_someone_else",
+      "employee_id": "E1003",
+      "request": "Can I get a headset for my new teammate?",
+      "expected": {
+        "decision": "escalated",
+        "escalated_by": "model_judgement",
+        "reflection": "match"
+      },
+      "actual": {
+        "decision": "escalated",
+        "escalated_by": "model_judgement",
+        "reflection": "match"
+      },
+      "case_ids": [
+        "ESC-001"
+      ],
+      "passed": {
+        "decision": true,
+        "escalated_by": true,
+        "reflection": true
+      },
+      "final_answer": "Escalated. Lena Cho requested a headset for her new teammate, which is for someone else rather than herself. The request has been flagged for human review with case ID ESC-001."
+    },
+    {
+      "id": "health",
+      "employee_id": "E1003",
+      "request": "My back hurts when I work, so I need a different monitor.",
+      "expected": {
+        "decision": "escalated",
+        "escalated_by": "model_judgement",
+        "reflection": "match"
+      },
+      "actual": {
+        "decision": "escalated",
+        "escalated_by": "model_judgement",
+        "reflection": "match"
+      },
+      "case_ids": [
+        "ESC-001"
+      ],
+      "passed": {
+        "decision": true,
+        "escalated_by": true,
+        "reflection": true
+      },
+      "final_answer": "Escalated. Lena Cho requested a monitor under the standard policy, which allows for 1 monitor with a wait period of 3 years. She currently has 0 monitors on file. A person will review the case (ESC-001) due to the health need described in her request."
+    },
+    {
+      "id": "unknown_employee",
+      "employee_id": "E7777",
+      "request": "Could I get a monitor please?",
+      "expected": {
+        "decision": "escalated",
+        "escalated_by": "data_rule",
+        "reflection": "skipped"
+      },
+      "actual": {
+        "decision": "escalated",
+        "escalated_by": "data_rule",
+        "reflection": "skipped"
+      },
+      "case_ids": [
+        "ESC-001"
+      ],
+      "passed": {
+        "decision": true,
+        "escalated_by": true,
+        "reflection": true
+      },
+      "final_answer": "Escalated. Case ESC-001 for monitor. Employee id is not in the directory, so role and equipment cannot be checked. Employee E7777 was not found. As of 2026-10-03."
+    },
+    {
+      "id": "contradiction",
+      "employee_id": "E1005",
+      "request": "My headset that I got back in 2020 crackles, please replace it.",
+      "expected": {
+        "decision": "escalated",
+        "escalated_by": "model_judgement",
+        "reflection": "match"
+      },
+      "actual": {
+        "decision": "escalated",
+        "escalated_by": "model_judgement",
+        "reflection": "match"
+      },
+      "case_ids": [
+        "ESC-001"
+      ],
+      "passed": {
+        "decision": true,
+        "escalated_by": true,
+        "reflection": true
+      },
+      "final_answer": "Escalated. Riley Okada (employee ID E1005) requested a replacement for their headset, but the system records show the oldest issued headset was in 2024. A person will review case ESC-001 to resolve the discrepancy."
+    }
+  ]
+}

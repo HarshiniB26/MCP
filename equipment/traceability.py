@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from equipment.errors import DirectoryError
+from equipment.schemas import Outcome
 
 LOG_FILE = Path(__file__).resolve().parents[1] / "logs" / "traceability.log"
 
@@ -49,3 +50,30 @@ class RunRecord:
         except OSError as error:
             raise DirectoryError(f"Cannot write {LOG_FILE.name}") from error
         self._closed = True
+
+
+class MemoryRecord:
+    """Collects what the agent would write to the traceability log, without touching the log file."""
+
+    def __init__(self):
+        self.lines = []
+        self.final = None
+        self.status = None
+
+    def add(self, text):
+        if text:
+            self.lines.append(text)
+
+    def finish(self, final, status="completed"):
+        self.final = final
+        self.status = status
+
+    @property
+    def text(self):
+        return "\n".join(self.lines)
+
+    @property
+    def outcome(self):
+        """The decision code recorded, read from the structured decision line rather than the reply text."""
+        line = next(line for line in self.lines if line.startswith("decision: "))
+        return Outcome.model_validate_json(line.removeprefix("decision: "))

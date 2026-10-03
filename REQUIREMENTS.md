@@ -71,9 +71,9 @@ Some requests cannot be decided from the file. These escalate whatever the reque
 
 When the data settles an item (P4 within or outside entitlement), the model reads the whole request and decides whether the employee's words make it unclear enough that a person should decide. There is no word list. Examples a person should see: a health or accessibility need, an item for another person, an extra unit while keeping the current one, or a description of the equipment that contradicts the record. An ordinary reason such as "it is slow" does not escalate.
 
-- After every item is checked, the agent asks the model one question that shows what the policy allows in plain words (for example, "allowed as a replacement only; keeping the current laptop as well is not allowed") next to the employee's words. The model answers `ESCALATE: <sentence>` or `CLEAR: <sentence>`.
-- On `ESCALATE`, `flag_for_human_review` is called once with the model's sentence. The reason code is `model_judgement`. An answer that cannot be read escalates rather than guessing.
-- The model may also escalate on its own during the investigation; then the question is not asked.
+- After every item is checked, the agent asks the model one question that shows what the policy allows in plain words (for example, "allowed as a replacement only; keeping the current laptop as well is not allowed") next to the employee's words. The model must answer in the `Judgement` JSON schema (`equipment/schemas.py`): three true/false fields (`asks_for_something_else`, `health_or_accessibility_need`, `contradicts_record`) and a one-sentence `reason`. Code escalates if any field is true; the words in the reason never decide.
+- On escalate, `flag_for_human_review` is called once with the model's sentence. The reason code is `model_judgement`. An answer that does not fit the schema escalates rather than guessing.
+- During the investigation the model may only call `flag_for_human_review` for a P5 data rule. Once the data settles every item, the agent refuses any other flag call, so the model's own escalation always goes through the structured judgement answer.
 - The model can only turn approve or deny into escalate. It cannot approve an item outside entitlement or deny an item within it.
 
 ### P7. Clear decision
@@ -92,7 +92,8 @@ Several items in one sentence:
 
 - State only facts a tool returned on this request: identity, role, count, max, wait, oldest issue date, anniversary, as-of date, disposition, and, if escalated, the case id and reason text.
 - Do not add a loaner, an exception, a price, a backorder, or a different anniversary.
-- Before the draft is final, the model compares it with the tool results and answers `Verdict: MATCH` or `Verdict: NOT MATCH` with a one-sentence reason. Other wording is fine; wrong or invented facts, a different decision, or promising more than the tools allow are NOT MATCH.
+- Before the draft is final, the model compares it with the tool results and answers in the `Reflection` JSON schema: five true/false checks (`same_decision`, `must_appear_present`, `nothing_invented`, `no_extra_promise`, `sound_reasoning`), a `reason`, and a `final_answer`. Code says MATCH only if all five are true. Other wording is fine; wrong or invented facts, a different decision, or promising more than the tools allow are NOT MATCH.
+- On MATCH, the same call's `final_answer` rewrites the draft as a clear two-to-four-sentence reply: the decision, the reason from the tool results, and what happens next, with the same facts. That reply is final; if none is given, the draft is final.
 - On NOT MATCH, or a verdict that cannot be read, there is no retry: the request is escalated.
 - Reflection runs when the model decided something: an approve, a deny, or its own escalation (P6). When every item was escalated by a data rule (P5), the reply is the stored review record and reflection is skipped.
 
@@ -161,8 +162,12 @@ Appends one record. Does not approve, deny, or delete.
 
 ### FR-5. Agent
 
-Connects as a client. The model chooses each tool call and judges the wording (P6). The agent refuses calls that break P5 or P6, and makes any P5 call the model skipped. The trace shows Thought, Action, and Observation for every call, then the disposition.
+Connects as a client. The model chooses each tool call and judges the wording (P6). The agent refuses calls that break P5 or P6, and makes any P5 call the model skipped. The trace shows Thought, Action, and Observation for every call, then the disposition. The ReAct turns run with thinking on, and each Thought is the model's own thinking for that call (or its text, or "(the model gave no reason with this call)"). Lines written by code are labelled `Agent:` or `Rule:`, never `Thought:`. At the end the agent writes a `decision:` line to the traceability log: the `Outcome` (decision, who escalated, per-item dispositions, case ids, reflection result), built by code from its own records, not from the reply text. The CLI prints a one-line `Decision:` summary.
 
 ### FR-6. Reflection
 
-Performs P8. One model call judges the draft against the tool results (`prompts/reflect.txt`). Code only reads the verdict. On NOT MATCH there is no rewrite: the agent escalates the request instead of sending an unconfirmed decision. The CLI prints `Reflection: match`, `Reflection: not match`, or `Reflection: skipped` and the final answer; the reason goes to the traceability log.
+Performs P8. One model call judges the draft (`prompts/reflect.txt`). It receives the employee's request, the full ReAct trace (every Thought, Action, and Observation, the rule checks, and the judgement), the rule results, the facts, the names and case ids that must appear, and the draft. It checks the decision, the facts, that nothing extra is promised, and that the reasoning in the trace supports the decision. Code validates the JSON with Pydantic and derives the verdict from the five checks. On NOT MATCH there is no rewrite: the agent escalates the request instead of sending an unconfirmed decision. The CLI prints `Reflection: match`, `Reflection: not match`, or `Reflection: skipped` and the final answer; the reason goes to the traceability log.
+
+### FR-7. Tests
+
+Unit and integration tests under `tests/`, run by CI on every push.
